@@ -3,7 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import express, { Request, Response } from "express";
 import { z } from "zod";
 import chalk from "chalk";
-import { hello, echo } from "./tools.js";
+import { search_ctftime_writeups, fetch_writeup, get_writeup_template, list_categories } from "./tools.js";
 
 // ============================================================================
 // Dev Logging Utilities
@@ -28,22 +28,16 @@ function truncate(str: string, maxLen = 60): string {
 
 function logRequest(method: string, params?: unknown): void {
   if (!isDev) return;
-
   const paramsStr = params ? chalk.gray(` ${truncate(JSON.stringify(params))}`) : "";
   console.log(`${chalk.gray(`[${timestamp()}]`)} ${chalk.cyan("→")} ${method}${paramsStr}`);
 }
 
 function logResponse(method: string, result: unknown, latencyMs: number): void {
   if (!isDev) return;
-
   const latency = formatLatency(latencyMs);
-
-  // For tool calls, show the result
   if (method === "tools/call" && result) {
     const resultStr = typeof result === "string" ? result : JSON.stringify(result);
-    console.log(
-      `${chalk.gray(`[${timestamp()}]`)} ${chalk.green("←")} ${truncate(resultStr)} ${chalk.gray(`(${latency})`)}`
-    );
+    console.log(`${chalk.gray(`[${timestamp()}]`)} ${chalk.green("←")} ${truncate(resultStr)} ${chalk.gray(`(${latency})`)}`);
   } else {
     console.log(`${chalk.gray(`[${timestamp()}]`)} ${chalk.green("✓")} ${method} ${chalk.gray(`(${latency})`)}`);
   }
@@ -51,82 +45,84 @@ function logResponse(method: string, result: unknown, latencyMs: number): void {
 
 function logError(method: string, error: unknown, latencyMs: number): void {
   const latency = formatLatency(latencyMs);
-
   let errorMsg: string;
-  if (error instanceof Error) {
-    errorMsg = error.message;
-  } else if (typeof error === "object" && error !== null) {
-    // JSON-RPC error object has { code, message, data? }
+  if (error instanceof Error) errorMsg = error.message;
+  else if (typeof error === "object" && error !== null) {
     const rpcError = error as { message?: string; code?: number };
     errorMsg = rpcError.message || `Error ${rpcError.code || "unknown"}`;
-  } else {
-    errorMsg = String(error);
-  }
-
-  console.log(
-    `${chalk.gray(`[${timestamp()}]`)} ${chalk.red("✖")} ${method} ${chalk.red(truncate(errorMsg))} ${chalk.gray(`(${latency})`)}`
-  );
+  } else errorMsg = String(error);
+  console.log(`${chalk.gray(`[${timestamp()}]`)} ${chalk.red("✖")} ${method} ${chalk.red(truncate(errorMsg))} ${chalk.gray(`(${latency})`)}`);
 }
 
 // ============================================================================
 // MCP Server Setup
 // ============================================================================
 
-// Build a FRESH MCP server per request.
-//
-// In stateless streamable-HTTP mode the MCP SDK allows a Server to be connected
-// to exactly ONE transport. Reusing a single module-scope instance throws
-// "Already connected to a transport" on the second connection — and Cloud Run
-// opens several (startup probe + real requests). So always create a new server
-// (and a new transport) inside the request handler below.
 function createMcpServer(): McpServer {
   const server = new McpServer({
     name: "ctf-writeups",
-    version: "1.0.0",
+    version: "1.1.0",
   });
 
-  // Register a simple "hello" tool
   server.registerTool(
-    "hello",
+    "search_ctftime_writeups",
     {
-      title: "Hello Tool",
-      description: "Returns a greeting message",
+      title: "Search CTFtime Writeups",
+      description: "Search public CTF writeups on CTFtime by keyword, challenge name, technique, or CTF/event. Returns matching writeup links and metadata.",
       inputSchema: {
-        name: z.string().describe("Name to greet"),
-      },
-      outputSchema: {
-        message: z.string(),
+        query: z.string().describe("Search query (challenge name, keyword, technique, or CTF)"),
+        limit: z.number().int().min(1).max(25).optional().describe("Max results to return (1-25, default 10)"),
       },
     },
-    async ({ name }) => {
-      const output = hello(name);
-      return {
-        content: [{ type: "text", text: JSON.stringify(output) }],
-        structuredContent: output,
-      };
+    async ({ query, limit }) => {
+      const output = await search_ctftime_writeups(query, limit ?? 10);
+      return { content: [{ type: "text", text: JSON.stringify(output, null, 2) }], structuredContent: output };
     }
   );
 
-  // Register an "echo" tool for testing
   server.registerTool(
-    "echo",
+    "fetch_writeup",
     {
-      title: "Echo Tool",
-      description: "Echoes back the input text",
+      title: "Fetch Writeup Content",
+      description: "Fetch a writeup/article URL and extract its readable text content (HTML stripped). Useful for summarizing or studying a specific writeup.",
       inputSchema: {
-        text: z.string().describe("Text to echo"),
-      },
-      outputSchema: {
-        echo: z.string(),
-        timestamp: z.string(),
+        url: z.string().url().describe("Absolute http(s) URL of the writeup to fetch"),
+        max_chars: z.number().int().min(1000).max(100000).optional().describe("Max characters of extracted text (default 20000)"),
       },
     },
-    async ({ text }) => {
-      const output = echo(text);
-      return {
-        content: [{ type: "text", text: JSON.stringify(output) }],
-        structuredContent: output,
-      };
+    async ({ url, max_chars }) => {
+      const output = await fetch_writeup(url, max_chars ?? 20000);
+      return { content: [{ type: "text", text: JSON.stringify(output, null, 2) }], structuredContent: output };
+    }
+  );
+
+  server.registerTool(
+    "get_writeup_template",
+    {
+      title: "Get Writeup Template",
+      description: "Generate a structured Markdown writeup template for a given CTF challenge category (web, pwn, crypto, rev, forensics, osint, misc).",
+      inputSchema: {
+        category: z.string().optional().describe("Challenge category: web, pwn, crypto, rev, forensics, osint, misc"),
+        challenge_name: z.string().optional().describe("Challenge name"),
+        ctf_name: z.string().optional().describe("CTF/event name"),
+      },
+    },
+    async ({ category, challenge_name, ctf_name }) => {
+      const output = get_writeup_template(category ?? "misc", challenge_name ?? "Challenge Name", ctf_name ?? "CTF Name");
+      return { content: [{ type: "text", text: output.markdown }], structuredContent: output };
+    }
+  );
+
+  server.registerTool(
+    "list_ctf_categories",
+    {
+      title: "List CTF Categories",
+      description: "List common CTF challenge categories with descriptions and typical tools.",
+      inputSchema: {},
+    },
+    async () => {
+      const output = list_categories();
+      return { content: [{ type: "text", text: JSON.stringify(output, null, 2) }], structuredContent: output };
     }
   );
 
@@ -140,25 +136,19 @@ function createMcpServer(): McpServer {
 const app = express();
 app.use(express.json());
 
-// Health check endpoint (required for Cloud Run)
 app.get("/health", (_req: Request, res: Response) => {
-  res.status(200).json({ status: "healthy" });
+  res.status(200).json({ status: "healthy", name: "ctf-writeups", version: "1.1.0" });
 });
 
-// MCP endpoint with dev logging
 app.post("/mcp", async (req: Request, res: Response) => {
   const startTime = Date.now();
   const body = req.body;
-
-  // Extract method and params from JSON-RPC request
   const method = body?.method || "unknown";
   const params = body?.params;
 
-  // Log incoming request
   if (method === "tools/call") {
     const toolName = params?.name || "unknown";
-    const toolArgs = params?.arguments;
-    logRequest(`tools/call ${chalk.bold(toolName)}`, toolArgs);
+    logRequest(`tools/call ${chalk.bold(toolName)}`, params?.arguments);
   } else if (method !== "notifications/initialized") {
     logRequest(method, params);
   }
@@ -168,85 +158,52 @@ app.post("/mcp", async (req: Request, res: Response) => {
     enableJsonResponse: true,
   });
 
-  // Capture response body for logging
   let responseBody = "";
   const originalWrite = res.write.bind(res) as typeof res.write;
   const originalEnd = res.end.bind(res) as typeof res.end;
 
   res.write = function (chunk: unknown, encodingOrCallback?: BufferEncoding | ((error: Error | null | undefined) => void), callback?: (error: Error | null | undefined) => void) {
-    if (chunk) {
-      responseBody += typeof chunk === "string" ? chunk : Buffer.from(chunk as ArrayBuffer).toString();
-    }
+    if (chunk) responseBody += typeof chunk === "string" ? chunk : Buffer.from(chunk as ArrayBuffer).toString();
     return originalWrite(chunk as string, encodingOrCallback as BufferEncoding, callback);
   };
 
   res.end = function (chunk?: unknown, encodingOrCallback?: BufferEncoding | (() => void), callback?: () => void) {
-    if (chunk) {
-      responseBody += typeof chunk === "string" ? chunk : Buffer.from(chunk as ArrayBuffer).toString();
-    }
-
-    // Log response
+    if (chunk) responseBody += typeof chunk === "string" ? chunk : Buffer.from(chunk as ArrayBuffer).toString();
     if (method !== "notifications/initialized") {
       const latency = Date.now() - startTime;
-
       try {
         const rpcResponse = JSON.parse(responseBody) as { result?: unknown; error?: unknown };
-
-        if (rpcResponse?.error) {
-          logError(method, rpcResponse.error, latency);
-        } else if (method === "tools/call") {
+        if (rpcResponse?.error) logError(method, rpcResponse.error, latency);
+        else if (method === "tools/call") {
           const content = (rpcResponse?.result as { content?: Array<{ text?: string }> })?.content;
-          const resultText = content?.[0]?.text;
-          logResponse(method, resultText, latency);
-        } else {
-          logResponse(method, null, latency);
-        }
-      } catch {
-        logResponse(method, null, latency);
-      }
+          logResponse(method, content?.[0]?.text, latency);
+        } else logResponse(method, null, latency);
+      } catch { logResponse(method, null, latency); }
     }
-
     return originalEnd(chunk as string, encodingOrCallback as BufferEncoding, callback);
   };
 
-  res.on("close", () => {
-    transport.close();
-  });
+  res.on("close", () => { transport.close(); });
 
-  // Fresh server instance per request (see createMcpServer above) — required for
-  // stateless streamable-HTTP so a second connection never reuses a transport.
   const server = createMcpServer();
   await server.connect(transport);
   await transport.handleRequest(req, res, req.body);
 });
 
-// JSON error handler (Express defaults to HTML errors)
 app.use((_err: unknown, _req: Request, res: Response, _next: Function) => {
   res.status(500).json({ error: "Internal server error" });
 });
 
-// ============================================================================
-// Start Server
-// ============================================================================
-
 const port = parseInt(process.env.PORT || "8080");
 const httpServer = app.listen(port, () => {
   console.log();
-  console.log(chalk.bold("MCP Server running on"), chalk.cyan(`http://localhost:${port}`));
+  console.log(chalk.bold("CTF Writeups MCP Server running on"), chalk.cyan(`http://localhost:${port}`));
   console.log(`  ${chalk.gray("Health:")} http://localhost:${port}/health`);
   console.log(`  ${chalk.gray("MCP:")}    http://localhost:${port}/mcp`);
-
-  if (isDev) {
-    console.log();
-    console.log(chalk.gray("─".repeat(50)));
-    console.log();
-  }
+  if (isDev) { console.log(); console.log(chalk.gray("─".repeat(50))); console.log(); }
 });
 
-// Graceful shutdown for Cloud Run (SIGTERM before kill)
 process.on("SIGTERM", () => {
   console.log("Received SIGTERM, shutting down...");
-  httpServer.close(() => {
-    process.exit(0);
-  });
+  httpServer.close(() => { process.exit(0); });
 });
