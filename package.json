@@ -1,7 +1,7 @@
 {
   "name": "ctf-writeups",
-  "version": "1.1.0",
-  "description": "MCP server for discovering, fetching, and structuring CTF writeups (CTFtime search, content extraction, templates)",
+  "version": "1.2.0",
+  "description": "CTF Writeup Toolkit — an MCP server for searching CTFtime writeups, extracting writeup content, and generating structured CTF solution templates.",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

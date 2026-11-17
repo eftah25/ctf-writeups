@@ -1,35 +1,43 @@
-# ctf-writeups
+# CTF Writeup Toolkit
 
-MCP server for discovering, fetching, and structuring CTF writeups.
+CTF Writeup Toolkit is an MCP server that helps security researchers and CTF players discover, retrieve, and structure capture-the-flag writeups. It provides tools to search public CTFtime writeups, extract readable content from writeup pages, and generate category-specific Markdown templates for documenting solutions.
 
-## Tools
-- **search_ctftime_writeups(query, limit?)** — Search public CTF writeups on CTFtime by keyword, challenge name, technique, or event. Returns links and metadata.
-- **fetch_writeup(url, max_chars?)** — Fetch a writeup/article URL and extract readable text (HTML stripped) for study/summarization.
-- **get_writeup_template(category?, challenge_name?, ctf_name?)** — Generate a structured Markdown writeup template (web, pwn, crypto, rev, forensics, osint, misc).
-- **list_ctf_categories()** — List common CTF categories with descriptions and typical tools.
+## Features
+- **Writeup discovery:** Search public CTFtime writeups by challenge name, keyword, technique, or event.
+- **Content extraction:** Fetch a writeup URL and return cleaned, readable text for analysis or summarization.
+- **Structured documentation:** Generate Markdown templates tailored to common CTF categories.
+- **Category guidance:** List common challenge categories with descriptions and typical tooling.
 
-## Local development
+## MCP Tools
+| Tool | Description |
+|---|---|
+| `search_ctftime_writeups` | Search public CTFtime writeups by query (`query`, optional `limit` 1–25). Returns matching writeup links and metadata. |
+| `fetch_writeup` | Fetch and extract readable text from a writeup/article URL (`url`, optional `max_chars` 1000–100000). |
+| `get_writeup_template` | Generate a structured Markdown writeup template (`category`, `challenge_name`, `ctf_name`). Categories: `web`, `pwn`, `crypto`, `rev`, `forensics`, `osint`, `misc`. |
+| `list_ctf_categories` | List common CTF categories with descriptions and typical tools. |
+
+## Local Development
 ```bash
 npm install
 npm run dev
 # MCP endpoint: http://localhost:8080/mcp
-# health:       http://localhost:8080/health
+# Health check:  http://localhost:8080/health
 ```
 
-## Build & test
+## Build & Test
 ```bash
 npm test
 npm run build
 npm start
 ```
 
-## Deploy (MCPize)
+## Deployment (MCPize)
 ```bash
 npx mcpize login   # or set MCPIZE_TOKEN
 npx mcpize deploy
 ```
-Runtime is HTTP per `mcpize.yaml` (`node dist/index.js` on `$PORT`).
+Runtime is configured for HTTP in `mcpize.yaml` (`node dist/index.js` on `$PORT`).
 
 ## Notes
-- `search_ctftime_writeups` and `fetch_writeup` make outbound HTTP requests to public sources (CTFtime / provided URLs). Results depend on source availability and page structure.
-- Respect target site terms/rate limits; fetch only URLs you are authorized to access.
+- `search_ctftime_writeups` and `fetch_writeup` perform outbound requests to public sources (CTFtime and user-provided URLs). Results depend on source availability and page structure.
+- Use responsibly: respect target site terms/rate limits and access only content you are authorized to retrieve.
